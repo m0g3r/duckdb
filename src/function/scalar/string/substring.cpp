@@ -58,10 +58,10 @@ static bool SubstringStartEnd(int64_t input_size, int64_t offset, int64_t length
 	}
 	if (offset > 0) {
 		// positive offset: scan from start
-		start = MinValue<int64_t>(input_size, offset - 1);
+		start = offset - 1;
 	} else if (offset < 0) {
 		// negative offset: scan from end (i.e. start = end + offset)
-		start = MaxValue<int64_t>(input_size + offset, 0);
+		start = input_size + offset;
 	} else {
 		// offset = 0: special case, we start 1 character BEHIND the first character
 		start = 0;
@@ -72,16 +72,18 @@ static bool SubstringStartEnd(int64_t input_size, int64_t offset, int64_t length
 	}
 	if (length > 0) {
 		// positive length: go forward (i.e. end = start + offset)
-		end = MinValue<int64_t>(input_size, start + length);
+		end = start + length;
 	} else {
 		// negative length: go backwards (i.e. end = start, start = start + length)
 		end = start;
-		start = MaxValue<int64_t>(0, start + length);
+		start += length;
 	}
-	if (start == end) {
+	// the offsets are only clamped to the input after both of them have been computed
+	start = MinValue<int64_t>(MaxValue<int64_t>(start, 0), input_size);
+	end = MinValue<int64_t>(MaxValue<int64_t>(end, 0), input_size);
+	if (start >= end) {
 		return false;
 	}
-	D_ASSERT(start < end);
 	return true;
 }
 
@@ -230,7 +232,9 @@ string_t SubstringGrapheme(Vector &result, string_t input, int64_t offset, int64
 		// we first need to count the number of characters in the string
 		idx_t num_characters = Utf8Proc::GraphemeCount(input_data, input_size);
 		// now call substring start and end again, but with the number of unicode characters this time
-		SubstringStartEnd(UnsafeNumericCast<int64_t>(num_characters), offset, length, start, end);
+		if (!SubstringStartEnd(UnsafeNumericCast<int64_t>(num_characters), offset, length, start, end)) {
+			return SubstringEmptyString(result);
+		}
 	}
 
 	// now scan the graphemes of the string to find the positions of the start and end characters

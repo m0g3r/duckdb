@@ -1,0 +1,182 @@
+# name: test/sql/function/string/test_substring_negative_offset.test
+# description: Test substring with negative offsets that reach before the start of the string
+# group: [string]
+
+statement ok
+CREATE TABLE ascii_strings(s VARCHAR);
+
+statement ok
+INSERT INTO ascii_strings VALUES ('abc');
+
+statement ok
+CREATE TABLE unicode_strings(s VARCHAR);
+
+statement ok
+INSERT INTO unicode_strings VALUES ('äbc');
+
+# statistics propagation switches to the ascii code path if the column cannot contain unicode
+foreach optimizer 'statistics_propagation' ''
+
+statement ok
+SET disabled_optimizers to {optimizer}
+
+foreach FUN substring substring_grapheme
+
+# the window ends before the first character
+query I
+SELECT {FUN}(s, -12345678, 12) FROM ascii_strings
+----
+(empty)
+
+query I
+SELECT {FUN}('abc', -12345678, 12)
+----
+(empty)
+
+query I
+SELECT {FUN}(s, -12345678, -12) FROM ascii_strings
+----
+(empty)
+
+query I
+SELECT {FUN}(s, -5, 2) FROM ascii_strings
+----
+(empty)
+
+# the window partially overlaps the string
+query I
+SELECT {FUN}(s, -4, 2) FROM ascii_strings
+----
+a
+
+query I
+SELECT {FUN}(s, -3, 2) FROM ascii_strings
+----
+ab
+
+query I
+SELECT {FUN}(s, -2, 2) FROM ascii_strings
+----
+bc
+
+query I
+SELECT {FUN}(s, -1, 2) FROM ascii_strings
+----
+c
+
+query I
+SELECT {FUN}(s, 0, 2) FROM ascii_strings
+----
+a
+
+query I
+SELECT {FUN}(s, 1, 2) FROM ascii_strings
+----
+ab
+
+# offsets at the edge of the supported range
+query I
+SELECT {FUN}(s, -4294967296, 12) FROM ascii_strings
+----
+(empty)
+
+query I
+SELECT {FUN}(s, -4294967296, 4294967295) FROM ascii_strings
+----
+ab
+
+query I
+SELECT {FUN}(s, -4294967296, -4294967296) FROM ascii_strings
+----
+(empty)
+
+query I
+SELECT {FUN}(s, -4294967296) FROM ascii_strings
+----
+ab
+
+statement error
+SELECT {FUN}(s, -4294967297, 12) FROM ascii_strings
+----
+Out of Range Error: Substring offset outside of supported range (< -4294967296)
+
+# the same offsets on a string that is not ascii
+query I
+SELECT {FUN}(s, -12345678, 12) FROM unicode_strings
+----
+(empty)
+
+query I
+SELECT {FUN}('äbc', -12345678, 12)
+----
+(empty)
+
+query I
+SELECT {FUN}(s, -4, 1) FROM unicode_strings
+----
+(empty)
+
+query I
+SELECT {FUN}(s, -3, 1) FROM unicode_strings
+----
+ä
+
+query I
+SELECT {FUN}(s, -1, 1) FROM unicode_strings
+----
+c
+
+endloop
+
+endloop
+
+statement ok
+RESET disabled_optimizers
+
+# A multi-codepoint grapheme cluster, decomposed rather than precomposed:
+# e + U+0301 COMBINING ACUTE ACCENT + bc. Five bytes, four codepoints, three
+# grapheme clusters. This is the case that reaches the second
+# SubstringStartEnd call in SubstringGrapheme: the byte-based first pass sees
+# input_size 5 and returns a non-empty window, the string is then found to be
+# non-ascii, and only the recomputation against GraphemeCount 3 discovers that
+# the window lies entirely before the first cluster.
+
+statement ok
+CREATE TABLE decomposed AS SELECT chr(101) || chr(769) || 'bc' AS s
+
+# guard the fixture itself: this must not be the precomposed U+00E9
+query III
+SELECT strlen(s), length(s), s = chr(233) || 'bc' FROM decomposed
+----
+5	4	false
+
+# offset -4 against three graphemes starts before the string
+query I
+SELECT substring_grapheme(s, -4, 1) FROM decomposed
+----
+(empty)
+
+# the neighbouring offset returns the whole cluster, not the bare 'e'.
+# compared in SQL rather than against a literal: a literal in this file would be
+# the precomposed U+00E9 and would compare unequal to the decomposed result
+# despite rendering identically.
+query II
+SELECT substring_grapheme(s, -3, 1) = chr(101) || chr(769), strlen(substring_grapheme(s, -3, 1)) FROM decomposed
+----
+true	3
+
+# a window reaching further back than the string is empty, not clamped forward
+query I
+SELECT substring_grapheme(s, -9, 2) FROM decomposed
+----
+(empty)
+
+# a window that starts before the string but extends into it keeps only the
+# part that overlaps
+query I
+SELECT substring_grapheme(s, -4, 2) = chr(101) || chr(769) FROM decomposed
+----
+true
+
+statement ok
+DROP TABLE decomposed
