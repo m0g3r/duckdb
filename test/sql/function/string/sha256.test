@@ -13,6 +13,12 @@ SELECT sha256('')
 ----
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 
+# multi-block inputs that reach the bulk compression loop
+query II
+SELECT sha256('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq'), sha256(repeat('a', 1000000))
+----
+248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1	cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0
+
 query I
 SELECT sha256('\xff\xff'::BLOB)
 ----

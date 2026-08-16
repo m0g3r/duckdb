@@ -27,3 +27,9 @@
 #define MBEDTLS_CIPHER_MODE_CBC
 #define MBEDTLS_CIPHER_MODE_WITH_PADDING
 #define MBEDTLS_CIPHER_PADDING_PKCS7
+
+// use the armv8-a sha-2 instructions when the cpu reports them, chosen at runtime
+// sha256.cpp only implements the required target pragmas for gcc and clang
+#if defined(__GNUC__) || defined(__clang__)
+#define MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT
+#endif
